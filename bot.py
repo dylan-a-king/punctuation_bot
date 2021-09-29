@@ -20,7 +20,14 @@ class Bot_Client(discord.Client):
         print(f'Logged on as {self.user}!')
 
     async def on_message(self, message):
-        await message.channel.send("hello")
+        # don't respond to ourself
+        if message.author == self.user:
+            return
+
+        content = message.content
+        has_punctuation = (content[-1] == ".")
+        if not has_punctuation:
+            await message.channel.send("Please use punctuation.")
         pass
 
 
