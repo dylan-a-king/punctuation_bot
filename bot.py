@@ -13,6 +13,7 @@ def get_token() -> str:
 
 
 TOKEN = get_token()
+PUNCTUATION_MARKS = [".", "!", "?", ]
 
 
 class Bot_Client(discord.Client):
@@ -25,7 +26,7 @@ class Bot_Client(discord.Client):
             return
 
         content = message.content
-        has_punctuation = (content[-1] == ".")
+        has_punctuation = (content[-1] in PUNCTUATION_MARKS)
         if not has_punctuation:
             await message.channel.send("Please use punctuation.")
         pass
