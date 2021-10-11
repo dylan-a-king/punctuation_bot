@@ -38,11 +38,12 @@ def is_punctuating(ch: discord.TextChannel) -> bool:
 
 
 def is_command(msg) -> bool:
-    return msg.content.split()[1] == COMMAND_PREFIX
+    return msg.content.split()[0] == COMMAND_PREFIX
 
 
 def has_permissions(author: discord.Member) -> bool:
-    return PUNCTUATION_AUTHORITY_ROLE_ID in author.roles
+    return any((PUNCTUATION_AUTHORITY_ROLE_ID in author.roles,
+               author.guild_permissions.administrator))
 
 
 def lex_command(content: str) -> list[Union[str, list[str]]]:
@@ -53,22 +54,23 @@ def lex_command(content: str) -> list[Union[str, list[str]]]:
     cmd: list[Union[str, list[str]]] = []
     for idx, word in enumerate(words):
         if word in OPS:
-            arg_amt = OP_ARG_AMTS
+            arg_amt = OP_ARG_AMTS[word]
             if arg_amt == 0:
                 cmd.append(word)
             else:
-                cmd.append(words[idx, idx + 1 + arg_amt])
+                cmd.append(words[idx: idx + 1 + arg_amt])
         else:
             # TODO: check if all words have been consumed rather than ignoring
             #       unused words.
             ...
+    return cmd
 
 
 def exec_command(msg: discord.message) -> str:
     # lex command
     cmd = lex_command(msg.content)
 
-    # TODO: Fix this perm handling
+    # TODO: fix command parsing errors i.e. send the error to the user
     if not has_permissions(msg.author):
         return "ERROR: you do not have proper perms!"
 
@@ -80,7 +82,7 @@ def exec_command(msg: discord.message) -> str:
                 return f"INFO: Punctuating is on for #{msg.channel.name}"
             if op == "off":
                 punctuating_status[msg.channel.id] = False
-                return f"INFO: Puncuating is on for #{msg.channel.name}"
+                return f"INFO: Puncuating is off for #{msg.channel.name}"
         else:
             if op[0] == "set-non-punctuator-role":
                 try:
@@ -113,7 +115,7 @@ class Bot_Client(discord.Client):
             has_punctuation = message.content[-1] in PUNCTUATION_MARKS
             if not has_punctuation:
                 await message.reply(
-                    f"{message.author.display_name}, please behave neighborly"
+                    f"{message.author.display_name}, please behave neighborly "
                     "in this chat, and use punctuation."
                 )
 
