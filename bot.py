@@ -67,6 +67,7 @@ def lex_command(content: str) -> list[Union[str, list[str]]]:
 
 
 def exec_command(msg: discord.message) -> str:
+    global non_punctuator_role
     # lex command
     cmd = lex_command(msg.content)
 
@@ -87,6 +88,7 @@ def exec_command(msg: discord.message) -> str:
             if op[0] == "set-non-punctuator-role":
                 try:
                     non_punctuator_role = int(op[1])
+                    return f"INFO: Set non-punctuator role to role-id#{op[1]}"
                 except ValueError:
                     return f"ERROR: argument to set-non-punctuator-role invalid! " \
                         f"\"{op[1]}\" cannot be interpereted as a role id!"
@@ -111,7 +113,7 @@ class Bot_Client(discord.Client):
             return
 
         if is_punctuating(message.channel) and \
-                non_punctuator_role not in message.author.roles:
+                non_punctuator_role not in [role.id for role in message.author.roles]:
             has_punctuation = message.content[-1] in PUNCTUATION_MARKS
             if not has_punctuation:
                 await message.reply(
