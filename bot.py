@@ -1,6 +1,6 @@
 import os
 from typing import OrderedDict, Union
-
+from datetime import datetime
 # TODO: consider implement scheduling
 # import schedule
 
@@ -45,9 +45,21 @@ operations:
 punctuating_status = {}
 
 # the id of the non-punctuator role
+# TODO: save this in a file
 non_punctuator_role = 0
 
 sent_messages_buffer = OrderedDict()
+
+# TODO: make a function that auto-formats log messages; i.e.
+# log_format("INFO","The quick brown fox jumped over the lazy dog; little did he realize the harm he'd done.")
+# would return: f"{now()}::INFO: The quick brown fox jumped over the\n"
+#               f"{'      ':<26} lazy dog; little did he realize the\n"
+#               f"{'      ':<26} harm he'd done.
+# properly aligned and line-wrapped.
+
+
+def now() -> str:
+    return datetime.now().strftime('%Y:%m:%d::%I:%M%p')
 
 
 def add_to_buffer(src: discord.Message, reply: discord.Message):
@@ -133,7 +145,7 @@ def exec_command(msg: discord.message) -> str:
 
 class Bot_Client(discord.Client):
     async def on_ready(self):
-        print(f'Logged on as {self.user}!')
+        print(f'{now()}::STARTUP: Logged on as {self.user}!')
 
     async def on_message(self, message):
         # don't respond to ourself
@@ -166,8 +178,8 @@ class Bot_Client(discord.Client):
 
         # perform punctuation checking
         if (is_punctuating(message.channel) and
-                non_punctuator_role not in [
-                role.id for role in message.author.roles]
+            non_punctuator_role not in [
+            role.id for role in message.author.roles]
             ):
             # TODO: this could be improved to be smarter.
             # For example, maybe add skips for emoji-only messages, etc.
@@ -180,6 +192,9 @@ class Bot_Client(discord.Client):
                         " neighborly in this chat by using punctuation."
                     )
                 )
+                print(
+                    f"{now()}::INFO: Flagged a message without punctuation."
+                )
 
     async def on_message_edit(self, before_msg, after_msg):
         # If a message is edited and I replied to it before
@@ -187,12 +202,25 @@ class Bot_Client(discord.Client):
         if before_msg.id in sent_messages_buffer:
             my_reply = sent_messages_buffer[before_msg.id]
             await my_reply.delete()
+            print(
+                f"{now()}::INFO: A message I replied to was edited!\n"
+                f"{'      ':<26} Deleted my response."
+            )
         await self.on_message(after_msg)
 
     async def on_message_delete(self, message):
         if message.id in sent_messages_buffer:
             my_reply = sent_messages_buffer[message.id]
-            await my_reply.delete()
+            try:
+                await my_reply.delete()
+            except discord.errors.NotFound:
+                # if my reply was already deleted through the edit system, don't
+                # try re-deleting it.
+                print(
+                    f"{now()}::INFO: Tried to delete my reply to a message,\n "
+                    f"{'      ':<26} but it was already deleted."
+                )
+                pass
 
 
 def get_token() -> str:
