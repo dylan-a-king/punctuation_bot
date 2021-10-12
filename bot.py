@@ -1,5 +1,5 @@
 import os
-from typing import Union
+from typing import OrderedDict, Union
 
 # TODO: consider implement scheduling
 # import schedule
@@ -8,7 +8,8 @@ import discord
 from dotenv import load_dotenv
 
 PUNCTUATION_MARKS = [".", "!", "?", ]
-PUNCTUATION_AUTHORITY_ROLE_ID = 0
+PUNCTUATION_AUTHORITY_ROLE_ID = 868196820122210314
+# TODO: save this in a file
 non_punctuator_role = 0
 COMMAND_PREFIX = "punct"
 
@@ -25,12 +26,35 @@ OP_ARG_AMTS = {
     "set-non-punctuator-role": 1,
 }
 
+USAGE = f"""```\
+USAGE: punct <operation> [args]
+a command can have multiple pairs of <operation> [args].
+operations:
+    {OPS[0]:<28}turns punctuation on in a channel.
+    {OPS[1]:<28}turns punctuation off in a channel.
+    {OPS[2]:<28}sets the non-punctuator role (i.e.
+    {'    ':<28}the role which is exempt from 
+    {'    ':<28}punctuation checking) takes the role's
+    {'    ':<28}id as an argument.
+
+```"""
+
 # keys are channel ids, values are bools expressing whether referenced channel
 # has punctuation turned on
+# TODO: save this in a file
 punctuating_status = {}
 
 # the id of the non-punctuator role
 non_punctuator_role = 0
+
+sent_messages_buffer = OrderedDict()
+
+
+def add_to_buffer(src: discord.Message, reply: discord.Message):
+    global sent_messages_buffer
+    sent_messages_buffer[src.id] = reply
+    if len(sent_messages_buffer) > 10:
+        sent_messages_buffer.popitem(last=False)
 
 
 def is_punctuating(ch: discord.TextChannel) -> bool:
@@ -38,12 +62,18 @@ def is_punctuating(ch: discord.TextChannel) -> bool:
 
 
 def is_command(msg) -> bool:
-    return msg.content.split()[0] == COMMAND_PREFIX
+    return False if (
+        msg.content == ""
+    ) else (
+        msg.content.split()[0] == COMMAND_PREFIX
+    )
 
 
 def has_permissions(author: discord.Member) -> bool:
-    return any((PUNCTUATION_AUTHORITY_ROLE_ID in author.roles,
-               author.guild_permissions.administrator))
+    return (
+        PUNCTUATION_AUTHORITY_ROLE_ID in [role.id for role in author.roles] or
+        author.guild_permissions.administrator
+    )
 
 
 def lex_command(content: str) -> list[Union[str, list[str]]]:
@@ -75,6 +105,9 @@ def exec_command(msg: discord.message) -> str:
     if not has_permissions(msg.author):
         return "ERROR: you do not have proper perms!"
 
+    if len(cmd) == 0:
+        return USAGE
+
     assert len(OPS) == 3, "Exhaustive op handling in exec_command"
     for op in cmd:
         if isinstance(op, str):
@@ -90,8 +123,12 @@ def exec_command(msg: discord.message) -> str:
                     non_punctuator_role = int(op[1])
                     return f"INFO: Set non-punctuator role to role-id#{op[1]}"
                 except ValueError:
-                    return f"ERROR: argument to set-non-punctuator-role invalid! " \
+                    return (
+                        f"ERROR: argument to set-non-punctuator-role invalid! "
                         f"\"{op[1]}\" cannot be interpereted as a role id!"
+                    )
+
+    assert False, "Unreachable: exec_command should always return a message."
 
 
 class Bot_Client(discord.Client):
@@ -105,21 +142,57 @@ class Bot_Client(discord.Client):
 
         # initalize unseen channels
         if message.channel.id not in punctuating_status:
-            punctuating_status[message.channel.id] = True
+            if 'bot' in message.channel.name:
+                punctuating_status[message.channel.id] = False
+            else:
+                punctuating_status[message.channel.id] = True
 
-        if is_command(message):
-            result = exec_command(message)
-            await message.reply(result)
+        # skip empty messages
+        if message.content == "":
             return
 
-        if is_punctuating(message.channel) and \
-                non_punctuator_role not in [role.id for role in message.author.roles]:
+        # skip messages with embeds
+        # TODO: fix this so that it still corrects
+        # the message's content if it's not just the link.
+        if len(message.embeds) > 0:
+            return
+
+        # handle commands
+        if is_command(message):
+            result = exec_command(message)
+            reply = await message.reply(result)
+            await reply.delete(delay=10)
+            return
+
+        # perform punctuation checking
+        if (is_punctuating(message.channel) and
+                non_punctuator_role not in [
+                role.id for role in message.author.roles]
+            ):
+            # TODO: this could be improved to be smarter.
+            # For example, maybe add skips for emoji-only messages, etc.
             has_punctuation = message.content[-1] in PUNCTUATION_MARKS
             if not has_punctuation:
-                await message.reply(
-                    f"{message.author.display_name}, please behave neighborly "
-                    "in this chat, and use punctuation."
+                add_to_buffer(
+                    message,
+                    await message.reply(
+                        f"{message.author.display_name}, please behave"
+                        " neighborly in this chat by using punctuation."
+                    )
                 )
+
+    async def on_message_edit(self, before_msg, after_msg):
+        # If a message is edited and I replied to it before
+        # it was edited, delete my reply and re-process it.
+        if before_msg.id in sent_messages_buffer:
+            my_reply = sent_messages_buffer[before_msg.id]
+            await my_reply.delete()
+        await self.on_message(after_msg)
+
+    async def on_message_delete(self, message):
+        if message.id in sent_messages_buffer:
+            my_reply = sent_messages_buffer[message.id]
+            await my_reply.delete()
 
 
 def get_token() -> str:
