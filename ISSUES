@@ -1,0 +1,7 @@
+Issue 0:
+    On first running after install, program crashes because discord token is not
+    available in .env. If no discord token is found in .env, or no .env is found,
+    ask the user for the token and auto-create the .env.
+
+Issue 1: 
+    Embeds only work sometimes. 
