@@ -1,11 +1,20 @@
+import asyncio
 import os
-from typing import OrderedDict, Union
+from types import CoroutineType
+from typing import Coroutine, OrderedDict, Union
 from datetime import datetime
 # TODO: consider implement scheduling
 # import schedule
 
 import discord
 from dotenv import load_dotenv
+
+# DEBUG CONSTANTS
+DEBUG_EMBEDS = False
+DEBUG_ON_MESSAGE = False
+
+##
+
 
 PUNCTUATION_MARKS = [".", "!", "?", ]
 PUNCTUATION_AUTHORITY_ROLE_ID = 868196820122210314
@@ -33,7 +42,7 @@ operations:
     {OPS[0]:<28}turns punctuation on in a channel.
     {OPS[1]:<28}turns punctuation off in a channel.
     {OPS[2]:<28}sets the non-punctuator role (i.e.
-    {'    ':<28}the role which is exempt from 
+    {'    ':<28}the role which is exempt from
     {'    ':<28}punctuation checking) takes the role's
     {'    ':<28}id as an argument.
 
@@ -48,7 +57,17 @@ punctuating_status = {}
 # TODO: save this in a file
 non_punctuator_role = 0
 
-sent_messages_buffer = OrderedDict()
+
+# replies_buffer is an ordered_dict with entries in this format:
+# replies_buffer[source_message.id] = reply_message
+replies_buffer = OrderedDict()
+
+
+def add_to_replies_buffer(src: discord.Message, reply: discord.Message):
+    global replies_buffer
+    replies_buffer[src.id] = reply
+    if len(replies_buffer) > 10:
+        replies_buffer.popitem(last=False)
 
 # TODO: make a function that auto-formats log messages; i.e.
 # log_format("INFO","The quick brown fox jumped over the lazy dog; little did he realize the harm he'd done.")
@@ -60,13 +79,6 @@ sent_messages_buffer = OrderedDict()
 
 def now() -> str:
     return datetime.now().strftime('%Y:%m:%d::%I:%M%p')
-
-
-def add_to_buffer(src: discord.Message, reply: discord.Message):
-    global sent_messages_buffer
-    sent_messages_buffer[src.id] = reply
-    if len(sent_messages_buffer) > 10:
-        sent_messages_buffer.popitem(last=False)
 
 
 def is_punctuating(ch: discord.TextChannel) -> bool:
@@ -147,7 +159,13 @@ class Bot_Client(discord.Client):
     async def on_ready(self):
         print(f'{now()}::STARTUP: Logged on as {self.user}!')
 
-    async def on_message(self, message):
+    async def on_message(self, message, from_edit=False):
+        if DEBUG_ON_MESSAGE:
+            print(
+                f"{now()}::INFO: Processed message id#{message.id}\n"
+                f"{now()}::INFO: From edit: {from_edit}"
+            )
+
         # don't respond to ourself
         if message.author == self.user:
             return
@@ -166,7 +184,16 @@ class Bot_Client(discord.Client):
         # skip messages with embeds
         # TODO: fix this so that it still corrects
         # the message's content if it's not just the link.
+        if DEBUG_EMBEDS:
+            print(
+                f"{now()}::EMBD: Recieved message {message.id}\n"
+                f"{'      ':<26} Embeds:\n{message.embeds}"
+            )
+
         if len(message.embeds) > 0:
+            print(
+                f"{now()}::INFO: Recieved a message with embeds."
+            )
             return
 
         # TODO: skip code blocks
@@ -180,49 +207,53 @@ class Bot_Client(discord.Client):
 
         # perform punctuation checking
         if (is_punctuating(message.channel) and
-                non_punctuator_role not in [
-                role.id for role in message.author.roles]
+                    non_punctuator_role not in [
+                    role.id for role in message.author.roles]
                 ):
             # TODO: this could be improved to be smarter.
             # For example, maybe add skips for emoji-only messages, etc.
             has_punctuation = message.content[-1] in PUNCTUATION_MARKS
             if not has_punctuation:
-                add_to_buffer(
-                    message,
-                    await message.reply(
-                        f"{message.author.display_name}, please behave"
-                        " neighborly in this chat by using punctuation."
-                    )
+                my_pending_reply = message.reply(
+                    f"{message.author.display_name}, please behave"
+                    " neighborly in this chat by using punctuation."
                 )
+                add_to_replies_buffer(message, my_pending_reply)
+                my_reply = await my_pending_reply
+                add_to_replies_buffer(message, my_reply)
                 print(
-                    f"{now()}::INFO: Flagged a message without punctuation."
+                    f"{now()}::INFO: Replied to a message without punctuation."
                 )
 
     async def on_message_edit(self, before_msg, after_msg):
         # If a message is edited and I replied to it before
         # it was edited, delete my reply and re-process it.
-        if before_msg.id in sent_messages_buffer:
-            my_reply = sent_messages_buffer[before_msg.id]
-            await my_reply.delete()
-            print(
-                f"{now()}::INFO: A message I replied to was edited!\n"
-                f"{'      ':<26} Deleted my response."
-            )
-        await self.on_message(after_msg)
+        if before_msg.id in replies_buffer:
+            my_reply = replies_buffer[before_msg.id]
+            if asyncio.iscoroutine(my_reply):
+                print(
+                    f"{now()}::ERROR: Message with pending reply was edited/deleted."
+                )
+                return
 
-    async def on_message_delete(self, message):
-        if message.id in sent_messages_buffer:
-            my_reply = sent_messages_buffer[message.id]
             try:
                 await my_reply.delete()
+                print(
+                    f"{now()}::INFO: A message I replied to was edited/deleted!\n"
+                    f"{'      ':<26} Deleted my response."
+                )
             except discord.errors.NotFound:
-                # if my reply was already deleted through the edit system, don't
-                # try re-deleting it.
+                # if my reply was already deleted don't re-delete it.
                 print(
                     f"{now()}::INFO: Tried to delete my reply to a message,\n "
-                    f"{'      ':<26} but it was already deleted."
+                    f"{'      ':<26} but my reply was already deleted."
                 )
-                pass
+        # if the message was deleted rather than edited, after_msg will be None
+        if after_msg:
+            await self.on_message(after_msg, from_edit=True)
+
+    async def on_message_delete(self, message):
+        await self.on_message_edit(message, None)
 
 
 def get_token() -> str:
