@@ -1,7 +1,7 @@
 import asyncio
 import os
-from types import CoroutineType
-from typing import Coroutine, OrderedDict, Union
+import re
+from typing import OrderedDict, Union
 from datetime import datetime
 # TODO: consider implement scheduling
 # import schedule
@@ -163,7 +163,8 @@ class Bot_Client(discord.Client):
         if DEBUG_ON_MESSAGE:
             print(
                 f"{now()}::INFO: Processed message id#{message.id}\n"
-                f"{now()}::INFO: From edit: {from_edit}"
+                f"{now()}::INFO: From edit: {from_edit}\n"
+                f"{now()}::INFO: Message Content: {message.content}\n"
             )
 
         # don't respond to ourself
@@ -182,21 +183,25 @@ class Bot_Client(discord.Client):
             return
 
         # skip messages with embeds
-        # TODO: fix this so that it still corrects
-        # the message's content if it's not just the link.
-        if DEBUG_EMBEDS:
-            print(
-                f"{now()}::EMBD: Recieved message {message.id}\n"
-                f"{'      ':<26} Embeds:\n{message.embeds}"
-            )
-
-        if len(message.embeds) > 0:
-            print(
-                f"{now()}::INFO: Recieved a message with embeds."
-            )
+        if re.fullmatch(r"https://[\w./-]*", message.content):
+            if len(message.embeds) > 0:
+                print(
+                    f"{now()}::INFO: Recieved a URL-only message with embeds."
+                )
+            else:
+                print(
+                    f"{now()}::INFO: Recieved a URL-only message without embeds."
+                )
             return
 
         # TODO: skip code blocks
+
+        # TODO: skip emoji-only messages
+        # if re.fullmatch(r"<:\w*:\d*>", message.content):
+        #    print(
+        #        f"{now()}::INFO: Recieved an emoji-only message."
+        #    )
+        #    return
 
         # handle commands
         if is_command(message):
@@ -207,11 +212,9 @@ class Bot_Client(discord.Client):
 
         # perform punctuation checking
         if (is_punctuating(message.channel) and
-                    non_punctuator_role not in [
-                    role.id for role in message.author.roles]
-                ):
-            # TODO: this could be improved to be smarter.
-            # For example, maybe add skips for emoji-only messages, etc.
+            non_punctuator_role not in [
+            role.id for role in message.author.roles]
+            ):
             has_punctuation = message.content[-1] in PUNCTUATION_MARKS
             if not has_punctuation:
                 my_pending_reply = message.reply(
@@ -226,11 +229,15 @@ class Bot_Client(discord.Client):
                 )
 
     async def on_message_edit(self, before_msg, after_msg):
-        # If a message is edited and I replied to it before
-        # it was edited, delete my reply and re-process it.
+        # if the message that was edited/deleted is in my replies buffer
         if before_msg.id in replies_buffer:
+            # delete my reply and send the message back through on_message
             my_reply = replies_buffer[before_msg.id]
+
+            # if a message with a pending reply is edited or deleted, my_reply
+            # will be a coroutine rather than a discord.Message.
             if asyncio.iscoroutine(my_reply):
+                # TODO: wait until it's been awaited elsewhere, then continue
                 print(
                     f"{now()}::ERROR: Message with pending reply was edited/deleted."
                 )

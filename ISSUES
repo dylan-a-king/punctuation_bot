@@ -3,17 +3,17 @@ Issue 0:
     available in .env. If no discord token is found in .env, or no .env is found,
     ask the user for the token and auto-create the .env.
 
-Issue 1: 
+Issue 1: SOLVED 
     The system surrounding embeds and GIFs is broken. It can
     skip *any message* with embeds, and only sometimes does
     so. Ideally, only messages that are URL-only and have 
     embeds should be skipped.
 
-Issue 2:
-    When i recieve edits, I assume that they've happened after i've had time
+Issue 2: SOLVED
+    When I recieve edits, I assume that they've happened after i've had time
     to respond to the message. this isn't always the case. Catch instances of
     messages with pending replies being edited/deleted.
 
-Issue 3:
+Issue 3: SOLVED
     Code duplication in on_delete and on_edit. Deletes should be treated as edits
     where the after_message is `None`.
